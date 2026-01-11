@@ -1,0 +1,12 @@
+{
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"name": "video_editor",
+			"path": "../video_editor"
+		}
+	],
+	"settings": {}
+}
