@@ -44,42 +44,38 @@ class VideoRecorder {
     async startRecording(startSceneIndex = 0) {
         this.recordedChunks = [];
 
-        // Initialize audio narration
+        // Initialize audio narration (for playback during recording only)
         this.audioNarration = new AudioNarration();
         if (window.preferredSpeechRate) {
             this.audioNarration.setSpeechRateMultiplier(window.preferredSpeechRate);
         }
         await this.audioNarration.initialize();
 
-        // Get canvas stream (with captions rendered on it)
+        // Get canvas stream
         const canvasStream = this.canvas.captureStream(30); // 30 FPS
 
-        // Get audio stream from narration system
-        const audioStream = this.audioNarration.getAudioStream();
-
-        // Combine video and audio streams
+        // Note: We cannot natively capture SpeechSynthesis audio into the MediaStream.
+        // So we will record video ONLY for now to prevent broken files.
+        // The audio will play through speakers during recording.
         const combinedStream = new MediaStream([
-            ...canvasStream.getVideoTracks(),
-            ...audioStream.getAudioTracks()
+            ...canvasStream.getVideoTracks()
         ]);
 
-        // Create media recorder with both video and audio
+        // Create media recorder
         const options = {
-            mimeType: 'video/webm;codecs=vp9,opus',
-            videoBitsPerSecond: 5000000, // 5 Mbps for high quality
-            audioBitsPerSecond: 128000   // 128 kbps for audio
+            mimeType: 'video/webm;codecs=vp9',
+            videoBitsPerSecond: 5000000 // 5 Mbps
         };
 
         try {
             this.mediaRecorder = new MediaRecorder(combinedStream, options);
         } catch (e) {
             console.warn('Preferred codec not supported, using default');
-            // Fallback to default codec
             this.mediaRecorder = new MediaRecorder(combinedStream);
         }
 
         this.mediaRecorder.ondataavailable = (event) => {
-            if (event.data.size > 0) {
+            if (event.data && event.data.size > 0) {
                 this.recordedChunks.push(event.data);
             }
         };
@@ -88,11 +84,14 @@ class VideoRecorder {
             this.saveRecording();
         };
 
-        this.mediaRecorder.start(100); // Collect data every 100ms
-        this.isRecording = true;
-
-        // Start video generation
+        // Start generation FIRST to ensure canvas has content
         this.videoGenerator.start();
+        
+        // Wait a tick for the first frame to render
+        await new Promise(resolve => requestAnimationFrame(resolve));
+
+        this.mediaRecorder.start(100); 
+        this.isRecording = true;
 
         // Orchestrate scenes
         try {
