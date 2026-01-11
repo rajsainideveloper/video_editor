@@ -20,7 +20,13 @@
                 <p>Automated video creation</p>
             </div>
 
-            <div class="settings-panel">
+            <div class="sidebar-tabs">
+                <button class="tab-btn active" data-tab="settings">⚙️ Settings</button>
+                <button class="tab-btn" data-tab="editor">📝 Script Editor</button>
+            </div>
+
+            <!-- Settings Tab -->
+            <div id="tab-settings" class="tab-content active settings-panel">
                 <h3 style="margin-top: 0; color: #4ECDC4;">⚙️ Sync Settings</h3>
 
                 <div class="control-group" style="margin-bottom: 20px;">
@@ -104,6 +110,22 @@
                         <li><strong>Duration:</strong> ~3-4 minutes</li>
                         <li><strong>Format:</strong> MP4 (H.264)</li>
                     </ul>
+                </div>
+            </div>
+
+            <!-- Code Editor Tab -->
+            <div id="tab-editor" class="tab-content" style="display: none; height: 100%; flex-direction: column;">
+                <div style="flex: 1; display: flex; flex-direction: column; padding: 10px;">
+                    <div style="margin-bottom: 10px; color: #aaa; font-size: 0.8em;">
+                        Edit `scenes.js` below. Ensure it defines `const scenes = [...]`.
+                    </div>
+                    <textarea id="codeEditor" spellcheck="false"
+                        style="flex: 1; width: 100%; background: #1e1e1e; color: #d4d4d4; font-family: 'Monaco', 'Courier New', monospace; font-size: 12px; border: 1px solid #333; padding: 10px; resize: none; margin-bottom: 10px; border-radius: 4px;"></textarea>
+
+                    <button id="btnApplyCode" class="btn btn-primary" style="width: 100%;">
+                        🚀 Apply & Reload
+                    </button>
+                    <div id="codeStatus" style="margin-top: 5px; font-size: 0.8em; min-height: 1.2em;"></div>
                 </div>
             </div>
         </aside>

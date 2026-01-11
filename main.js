@@ -263,4 +263,132 @@ document.addEventListener('DOMContentLoaded', () => {
             }
         }
     });
+
+    // --- Scene Editor Logic ---
+    const tabBtns = document.querySelectorAll('.tab-btn');
+    const tabContents = document.querySelectorAll('.tab-content');
+    const codeEditor = document.getElementById('codeEditor');
+    const btnApplyCode = document.getElementById('btnApplyCode');
+    const codeStatus = document.getElementById('codeStatus');
+
+    // Tab Switching
+    tabBtns.forEach(btn => {
+        btn.addEventListener('click', () => {
+            // Remove active class from all
+            tabBtns.forEach(b => b.classList.remove('active'));
+            tabContents.forEach(c => c.classList.remove('active'));
+
+            // Add active to clicked
+            btn.classList.add('active');
+            const tabId = btn.dataset.tab;
+            document.getElementById(`tab-${tabId}`).classList.add('active');
+        });
+    });
+
+    // Load Initial Code
+    fetch('scenes.js')
+        .then(response => response.text())
+        .then(text => {
+            codeEditor.value = text;
+        })
+        .catch(err => {
+            codeEditor.value = "// Error loading scenes.js";
+            console.error(err);
+        });
+
+    // Apply Code Function
+    btnApplyCode.addEventListener('click', () => {
+        const code = codeEditor.value;
+        statusText.textContent = "Updating scenes...";
+        codeStatus.textContent = "Processing...";
+        codeStatus.style.color = "yellow";
+
+        try {
+            // We need to evaluate the code to get the 'scenes' array.
+            // CAUTION: 'eval' or 'new Function' is unsafe with untrusted input, 
+            // but this is a local tool for the user's own use.
+
+            // Strategy: Wrap in a function that returns 'scenes'.
+            // If the code defines 'const scenes = [...]', we might fail if we just eval it 
+            // because 'const' creates a block-scoped variable.
+            // However, we want to replace the GLOBAL 'scenes' variable.
+
+            // Hacky but effective for this context:
+            // 1. Strip 'const scenes =' or 'let scenes =' or 'var scenes =' to get just the array literal? 
+            //    -> Risky regex.
+            // 2. Just Eval it in global scope? 
+            //    -> 'const' re-declaration will throw if we do it in global scope again.
+
+            // Cleaner approach: Use a temporary function scope to extract the value.
+            // We assume the user provides valid JS that eventually defines 'scenes'.
+
+            // Let's rely on the user pasting the whole file content.
+            // The file usually looks like: "const scenes = [...];"
+            // We can change "const scenes =" to "return" inside a function constructor?
+
+            let cleanCode = code;
+            // Simple replace to make it returnable if it follows the standard pattern
+            if (cleanCode.includes('const scenes =')) {
+                cleanCode = cleanCode.replace('const scenes =', 'return ');
+            } else if (cleanCode.includes('var scenes =')) {
+                cleanCode = cleanCode.replace('var scenes =', 'return ');
+            } else if (cleanCode.trim().startsWith('[')) {
+                cleanCode = 'return ' + cleanCode;
+            }
+
+            // Create a function from the code
+            const func = new Function(cleanCode);
+            const newScenes = func();
+
+            if (Array.isArray(newScenes)) {
+                // Success! Update global
+                // We assume 'scenes' is globally available (from scenes.js load).
+                // If it was 'const' in global scope, we can't overwrite it easily directly 
+                // if we try `scenes = ...`. But `window.scenes` might work if it was var.
+                // Actually, since it was loaded via <script>, if it's `const` at top level, 
+                // we can't reassign it.
+
+                // WORKAROUND: We will modify the contents of the existing array 
+                // instead of replacing the reference, to avoid const errors.
+                scenes.length = 0; // Clear
+                newScenes.forEach(s => scenes.push(s)); // Push new items
+
+                console.log("Scenes updated:", scenes);
+
+                // Refresh UI
+                populateSceneSelect();
+                renderSceneManager();
+
+                // Reset generator
+                if (videoGenerator) {
+                    videoGenerator.stop();
+                    videoGenerator.currentScene = 0;
+                }
+
+                codeStatus.textContent = "✅ Scenes updated successfully!";
+                codeStatus.style.color = "#4ade80"; // Green
+                statusText.textContent = "Scenes updated. Ready.";
+            } else {
+                throw new Error("Code did not return an Array of scenes.");
+            }
+
+        } catch (e) {
+            console.error(e);
+            codeStatus.textContent = "❌ Error: " + e.message;
+            codeStatus.style.color = "#ef4444";
+            statusText.textContent = "Error updating scenes.";
+        }
+    });
+
+    // Helper to refresh the dropdown
+    function populateSceneSelect() {
+        sceneSelect.innerHTML = '';
+        scenes.forEach((scene, index) => {
+            const option = document.createElement('option');
+            option.value = index;
+            option.textContent = `${index + 1}. ${scene.name}`;
+            sceneSelect.appendChild(option);
+        });
+    }
+
 });
