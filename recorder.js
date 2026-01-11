@@ -44,80 +44,113 @@ class VideoRecorder {
     async startRecording(startSceneIndex = 0) {
         this.recordedChunks = [];
 
-        // Initialize audio narration (for playback during recording only)
+        // 1. Initialize audio narration (this plays sound to speakers)
         this.audioNarration = new AudioNarration();
         if (window.preferredSpeechRate) {
             this.audioNarration.setSpeechRateMultiplier(window.preferredSpeechRate);
         }
         await this.audioNarration.initialize();
 
-        // Get canvas stream
-        const canvasStream = this.canvas.captureStream(30); // 30 FPS
-
-        // Note: We cannot natively capture SpeechSynthesis audio into the MediaStream.
-        // So we will record video ONLY for now to prevent broken files.
-        // The audio will play through speakers during recording.
-        const combinedStream = new MediaStream([
-            ...canvasStream.getVideoTracks()
-        ]);
-
-        // Create media recorder
-        const options = {
-            mimeType: 'video/webm;codecs=vp9',
-            videoBitsPerSecond: 5000000 // 5 Mbps
-        };
-
         try {
-            this.mediaRecorder = new MediaRecorder(combinedStream, options);
-        } catch (e) {
-            console.warn('Preferred codec not supported, using default');
-            this.mediaRecorder = new MediaRecorder(combinedStream);
-        }
+            // 2. Request System Audio via Screen Share
+            // We explain this to the user first - usually in UI, but here we can trust the flow or add an alert
+            // Ideally the UI button handler showed a modal.
 
-        this.mediaRecorder.ondataavailable = (event) => {
-            if (event.data && event.data.size > 0) {
-                this.recordedChunks.push(event.data);
+            // NOTE: We only want AUDIO from this stream.
+            // We use standard video: true because some browsers require it for getDisplayMedia,
+            // but we will ignore the video track.
+            const displayStream = await navigator.mediaDevices.getDisplayMedia({
+                video: { mediaSource: 'tab' },
+                audio: {
+                    echoCancellation: false,
+                    noiseSuppression: false,
+                    autoGainControl: false,
+                    sampleRate: 44100
+                },
+                systemAudio: 'include', // Hint to browser
+                selfBrowserSurface: 'include' // Hint to browser to allow current tab
+            });
+
+            // Check if user shared audio
+            const audioTracks = displayStream.getAudioTracks();
+            if (audioTracks.length === 0) {
+                // User didn't share audio. Stop everything and throw error.
+                displayStream.getTracks().forEach(t => t.stop());
+                throw new Error("No audio shared. Please check 'Share tab audio' in the browser popup.");
             }
-        };
 
-        this.mediaRecorder.onstop = () => {
-            this.saveRecording();
-        };
+            const systemAudioTrack = audioTracks[0];
 
-        // Start generation FIRST to ensure canvas has content
-        this.videoGenerator.start();
-        
-        // Wait a tick for the first frame to render
-        await new Promise(resolve => requestAnimationFrame(resolve));
+            // 3. Get Canvas Video Stream (High Quality)
+            const canvasStream = this.canvas.captureStream(30); // 30 FPS
+            const videoTrack = canvasStream.getVideoTracks()[0];
 
-        this.mediaRecorder.start(100); 
-        this.isRecording = true;
+            // 4. Combine: Canvas Video + System Audio
+            const combinedStream = new MediaStream([
+                videoTrack,
+                systemAudioTrack
+            ]);
 
-        // Orchestrate scenes
-        try {
-            for (let i = 0; i < scenes.length; i++) {
-                const scene = scenes[i];
-                console.log(`Starting scene ${i + 1}: ${scene.name}`);
+            // 5. Create MediaRecorder
+            const options = {
+                mimeType: 'video/webm;codecs=vp9,opus',
+                videoBitsPerSecond: 5000000,
+                audioBitsPerSecond: 128000
+            };
 
-                // Create promises for both audio and minimum duration
-                // Apply dynamic duration multiplier
-                const effectiveDuration = scene.duration * this.durationMultiplier;
-
-                const audioPromise = this.audioNarration.speakText(scene.narration, effectiveDuration);
-                const minDurationPromise = new Promise(resolve => setTimeout(resolve, effectiveDuration));
-
-                // Wait for BOTH to complete. 
-                // This ensures we never advance before the text is spoken, 
-                // AND we never advance before the animation completes its minimum cycle.
-                await Promise.all([audioPromise, minDurationPromise]);
-
-                // Once both are done, trigger next scene
-                console.log(`Scene ${i + 1} complete. Advancing...`);
-                this.videoGenerator.triggerNextScene();
+            try {
+                this.mediaRecorder = new MediaRecorder(combinedStream, options);
+            } catch (e) {
+                console.warn('VP9/Opus not supported, trying default');
+                this.mediaRecorder = new MediaRecorder(combinedStream);
             }
-        } catch (e) {
-            console.error('Error during recording orchestration:', e);
-            this.stopRecording();
+
+            this.mediaRecorder.ondataavailable = (event) => {
+                if (event.data && event.data.size > 0) {
+                    this.recordedChunks.push(event.data);
+                }
+            };
+
+            this.mediaRecorder.onstop = () => {
+                // Stop the tracks we created
+                displayStream.getTracks().forEach(track => track.stop()); // Stop screen share
+                this.saveRecording();
+            };
+
+            this.mediaRecorder.start(100);
+            this.isRecording = true;
+
+            // 6. Start Content Generation
+            this.videoGenerator.start();
+
+            // Wait a tick
+            await new Promise(resolve => requestAnimationFrame(resolve));
+
+            // Orchestrate scenes
+            try {
+                for (let i = 0; i < scenes.length; i++) {
+                    const scene = scenes[i];
+                    console.log(`Starting scene ${i + 1}: ${scene.name}`);
+
+                    const effectiveDuration = scene.duration * this.durationMultiplier;
+
+                    const audioPromise = this.audioNarration.speakText(scene.narration, effectiveDuration);
+                    const minDurationPromise = new Promise(resolve => setTimeout(resolve, effectiveDuration));
+
+                    await Promise.all([audioPromise, minDurationPromise]);
+
+                    console.log(`Scene ${i + 1} complete.`);
+                    this.videoGenerator.triggerNextScene();
+                }
+            } catch (e) {
+                console.error('Error during orchestration:', e);
+                this.stopRecording();
+            }
+
+        } catch (err) {
+            console.error("Recording setup failed:", err);
+            // Re-throw so UI can handle (e.g. "Cancelled by user")
+            throw err;
         }
     }
 

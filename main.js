@@ -186,10 +186,20 @@ document.addEventListener('DOMContentLoaded', () => {
 
     // Start recording button
     startBtn.addEventListener('click', async () => {
+        // User Instructions for Audio Capture
+        const confirmed = confirm(
+            "To record the AI narration:\n\n" +
+            "1. In the popup, select the 'This Tab' (or current tab) option.\n" +
+            "2. IMPORTANT: Check the 'Also share tab audio' box.\n\n" +
+            "Click OK to proceed."
+        );
+
+        if (!confirmed) return;
+
         startBtn.disabled = true;
         stopBtn.disabled = false;
         showPlaybackControls();
-        statusText.textContent = 'Starting recording...';
+        statusText.textContent = 'Select "This Tab" & "Share Audio" in popup...';
 
         const startIndex = parseInt(sceneSelect.value);
 
@@ -202,6 +212,11 @@ document.addEventListener('DOMContentLoaded', () => {
             startBtn.disabled = false;
             stopBtn.disabled = true;
             hidePlaybackControls();
+
+            // Helpful hint if they forgot audio
+            if (error.message.includes("No audio")) {
+                alert("Recording Failed: Audio not found.\n\nPlease make sure to check 'Also share tab audio' in the browser popup window.");
+            }
         }
     });
 
